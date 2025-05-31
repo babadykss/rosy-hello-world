@@ -17,7 +17,8 @@ const menuItems = [
   { name: 'Wallets', icon: '◭', disabled: false },
   { name: 'System Recon', icon: '◮', disabled: false },
   { name: 'Bookmarks', icon: '◯', disabled: false },
-  { name: 'Infection', icon: '⚠', disabled: false }
+  { name: 'Infection', icon: '⚠', disabled: false },
+  { name: 'Settings', icon: '⚙', disabled: false }
 ];
 
 const Sidebar: React.FC<SidebarProps> = ({ selectedAgent, activeSection, onSectionChange }) => {
@@ -88,6 +89,22 @@ const Sidebar: React.FC<SidebarProps> = ({ selectedAgent, activeSection, onSecti
           <div className="text-green-600 text-xs">
             └─[ AGENT: {selectedAgent || 'NONE'} ]
           </div>
+          {selectedAgent && (
+            <div className="px-4 mt-2">
+              <button 
+                onClick={() => onSectionChange('Settings')}
+                className={`
+                  text-xs px-2 py-1 border transition-colors
+                  ${activeSection === 'Settings' 
+                    ? 'bg-cyan-400 text-black border-cyan-400' 
+                    : 'bg-black text-cyan-400 border-cyan-400 hover:bg-cyan-400/20'
+                  }
+                `}
+              >
+                ⚙ SETTINGS
+              </button>
+            </div>
+          )}
         </div>
       </nav>
       

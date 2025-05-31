@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 interface AgentDetailsProps {
@@ -16,7 +15,8 @@ const detailSections = [
   { name: 'Wallets', icon: '◭', desc: 'Crypto wallets' },
   { name: 'System Recon', icon: '◮', desc: 'System recon' },
   { name: 'Bookmarks', icon: '◯', desc: 'Bookmarks data' },
-  { name: 'Infection', icon: '⚠', desc: 'Payload deployment' }
+  { name: 'Infection', icon: '⚠', desc: 'Payload deployment' },
+  { name: 'Settings', icon: '⚙', desc: 'Agent configuration' }
 ];
 
 const AgentDetails: React.FC<AgentDetailsProps> = ({ selectedAgent, onSectionSelect, activeSection }) => {

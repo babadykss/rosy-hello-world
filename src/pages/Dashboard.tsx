@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useAgentData } from '../contexts/AgentDataContext';
@@ -13,6 +14,7 @@ import SystemRecon from '../components/sections/SystemRecon';
 import Bookmarks from '../components/sections/Bookmarks';
 import Wallets from '../components/sections/Wallets';
 import Infection from '../components/sections/Infection';
+import Settings from '../components/sections/Settings';
 
 const Dashboard: React.FC = () => {
   const { logout } = useAuth();
@@ -72,6 +74,8 @@ const Dashboard: React.FC = () => {
         return <Bookmarks agentId={state.selectedAgent} />;
       case 'Infection':
         return <Infection agentId={state.selectedAgent} />;
+      case 'Settings':
+        return <Settings agentId={state.selectedAgent} />;
       default:
         return (
           <div className="p-8 text-green-400">
