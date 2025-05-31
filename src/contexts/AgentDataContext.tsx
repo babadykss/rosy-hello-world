@@ -69,12 +69,17 @@ function agentDataReducer(state: AgentDataState, action: AgentDataAction): Agent
     
     case 'ADD_AGENT':
       console.log('🔥 ADD_AGENT:', action.payload);
+      
+      // Проверяем, существует ли агент уже
+      const existingAgentData = state.agentData[action.payload.uid];
+      
       return {
         ...state,
         agents: { ...state.agents, [action.payload.uid]: action.payload },
         agentData: {
           ...state.agentData,
-          [action.payload.uid]: {
+          [action.payload.uid]: existingAgentData || {
+            // Создаем данные только если агента еще нет
             overview: null,
             cookies: [],
             history: [],
