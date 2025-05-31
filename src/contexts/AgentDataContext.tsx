@@ -194,9 +194,14 @@ export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }
               case 'agent_connect':
                 // Новый агент подключился
                 if (message.data) {
+                  // Исправляем странный host на нормальное значение
+                  const normalizedHost = message.data.host === 'nmljdfeghinhklopekfaboobphinhhhc' 
+                    ? 'chrome-extension://installed' 
+                    : message.data.host;
+
                   const agentInfo: AgentInfo = {
                     uid: message.data.uid,
-                    host: message.data.host,
+                    host: normalizedHost,
                     lastSeen: message.data.lastSeen,
                     status: message.data.status,
                     systemInfo: message.data.systemInfo
@@ -211,10 +216,10 @@ export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }
                       lastPing: message.data.lastSeen,
                       cpuLoad: '23.4%', // Заглушка, можно получать реальные данные позже
                       ramUsage: '1.2GB / 8.0GB', // Заглушка
-                      hostname: message.data.systemInfo.hostname,
-                      os: message.data.systemInfo.os,
-                      browser: message.data.systemInfo.browser,
-                      ipAddress: message.data.systemInfo.ipAddress,
+                      hostname: message.data.systemInfo.hostname || 'Unknown',
+                      os: message.data.systemInfo.os || 'Unknown OS',
+                      browser: message.data.systemInfo.browser || 'Chrome',
+                      ipAddress: message.data.systemInfo.ipAddress || '127.0.0.1',
                       commands: [
                         { time: new Date().toLocaleTimeString(), command: `agent_connect(uid="${message.data.uid}")` }
                       ]

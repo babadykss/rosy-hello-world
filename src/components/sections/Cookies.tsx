@@ -2,6 +2,15 @@
 import React, { useState, useEffect } from 'react';
 import { useAgentData } from '../../contexts/AgentDataContext';
 import LoadingSpinner from '../LoadingSpinner';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from '../ui/pagination';
 
 interface CookiesProps {
   agentId: string | null;
@@ -78,6 +87,111 @@ const Cookies: React.FC<CookiesProps> = ({ agentId }) => {
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
+
+  // Логика для отображения пагинации с троеточием
+  const renderPaginationItems = () => {
+    const items = [];
+    const maxVisiblePages = 5;
+    
+    if (totalPages <= maxVisiblePages) {
+      // Показываем все страницы если их мало
+      for (let i = 1; i <= totalPages; i++) {
+        items.push(
+          <PaginationItem key={i}>
+            <PaginationLink
+              onClick={() => setCurrentPage(i)}
+              isActive={currentPage === i}
+              className={`cursor-pointer border transition-colors ${
+                currentPage === i 
+                  ? 'text-black bg-green-400 border-green-400' 
+                  : 'text-green-400 border-green-400 hover:bg-green-400/20'
+              }`}
+            >
+              {i}
+            </PaginationLink>
+          </PaginationItem>
+        );
+      }
+    } else {
+      // Показываем первую страницу
+      items.push(
+        <PaginationItem key={1}>
+          <PaginationLink
+            onClick={() => setCurrentPage(1)}
+            isActive={currentPage === 1}
+            className={`cursor-pointer border transition-colors ${
+              currentPage === 1 
+                ? 'text-black bg-green-400 border-green-400' 
+                : 'text-green-400 border-green-400 hover:bg-green-400/20'
+            }`}
+          >
+            1
+          </PaginationLink>
+        </PaginationItem>
+      );
+
+      // Показываем троеточие если нужно
+      if (currentPage > 3) {
+        items.push(
+          <PaginationItem key="ellipsis-start">
+            <PaginationEllipsis className="text-green-400" />
+          </PaginationItem>
+        );
+      }
+
+      // Показываем страницы вокруг текущей
+      const start = Math.max(2, currentPage - 1);
+      const end = Math.min(totalPages - 1, currentPage + 1);
+      
+      for (let i = start; i <= end; i++) {
+        items.push(
+          <PaginationItem key={i}>
+            <PaginationLink
+              onClick={() => setCurrentPage(i)}
+              isActive={currentPage === i}
+              className={`cursor-pointer border transition-colors ${
+                currentPage === i 
+                  ? 'text-black bg-green-400 border-green-400' 
+                  : 'text-green-400 border-green-400 hover:bg-green-400/20'
+              }`}
+            >
+              {i}
+            </PaginationLink>
+          </PaginationItem>
+        );
+      }
+
+      // Показываем троеточие если нужно
+      if (currentPage < totalPages - 2) {
+        items.push(
+          <PaginationItem key="ellipsis-end">
+            <PaginationEllipsis className="text-green-400" />
+          </PaginationItem>
+        );
+      }
+
+      // Показываем последнюю страницу
+      if (totalPages > 1) {
+        items.push(
+          <PaginationItem key={totalPages}>
+            <PaginationLink
+              onClick={() => setCurrentPage(totalPages)}
+              isActive={currentPage === totalPages}
+              className={`cursor-pointer border transition-colors ${
+                currentPage === totalPages 
+                  ? 'text-black bg-green-400 border-green-400' 
+                  : 'text-green-400 border-green-400 hover:bg-green-400/20'
+              }`}
+            >
+              {totalPages}
+            </PaginationLink>
+          </PaginationItem>
+        );
+      }
+    }
+
+    return items;
+  };
 
   return (
     <div className="p-8 bg-black text-green-400 font-mono">
@@ -156,20 +270,34 @@ const Cookies: React.FC<CookiesProps> = ({ agentId }) => {
       </div>
       
       {totalPages > 1 && (
-        <div className="flex justify-center mt-6 space-x-2">
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-            <button
-              key={page}
-              onClick={() => setCurrentPage(page)}
-              className={`px-3 py-1 border transition-colors ${
-                currentPage === page 
-                  ? 'text-black bg-green-400 border-green-400' 
-                  : 'text-green-400 border-green-400 hover:bg-green-400/20'
-              }`}
-            >
-              {page}
-            </button>
-          ))}
+        <div className="flex justify-center mt-6">
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious 
+                  onClick={() => currentPage > 1 && setCurrentPage(currentPage - 1)}
+                  className={`cursor-pointer border border-green-400 transition-colors ${
+                    currentPage === 1 
+                      ? 'opacity-50 cursor-not-allowed text-green-600' 
+                      : 'text-green-400 hover:bg-green-400/20'
+                  }`}
+                />
+              </PaginationItem>
+              
+              {renderPaginationItems()}
+              
+              <PaginationItem>
+                <PaginationNext 
+                  onClick={() => currentPage < totalPages && setCurrentPage(currentPage + 1)}
+                  className={`cursor-pointer border border-green-400 transition-colors ${
+                    currentPage === totalPages 
+                      ? 'opacity-50 cursor-not-allowed text-green-600' 
+                      : 'text-green-400 hover:bg-green-400/20'
+                  }`}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
         </div>
       )}
     </div>
