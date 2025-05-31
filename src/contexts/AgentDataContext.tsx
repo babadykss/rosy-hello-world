@@ -69,6 +69,7 @@ function agentDataReducer(state: AgentDataState, action: AgentDataAction): Agent
       return { ...state, agents: action.payload };
     
     case 'ADD_AGENT':
+      console.log('🔥 ADD_AGENT:', action.payload);
       return {
         ...state,
         agents: { ...state.agents, [action.payload.uid]: action.payload },
@@ -90,11 +91,15 @@ function agentDataReducer(state: AgentDataState, action: AgentDataAction): Agent
       };
     
     case 'SELECT_AGENT':
+      console.log('🎯 SELECT_AGENT:', action.payload);
       return { ...state, selectedAgent: action.payload };
     
     case 'UPDATE_AGENT_DATA':
       const { agentUID, section, data } = action.payload;
-      return {
+      console.log(`📊 UPDATE_AGENT_DATA: Agent=${agentUID}, Section=${section}, DataType=${typeof data}, DataLength=${Array.isArray(data) ? data.length : 'not array'}`);
+      console.log('📊 Data content:', data);
+      
+      const newState = {
         ...state,
         agentData: {
           ...state.agentData,
@@ -104,8 +109,12 @@ function agentDataReducer(state: AgentDataState, action: AgentDataAction): Agent
           }
         }
       };
+      
+      console.log(`📊 After update - Agent ${agentUID} ${section}:`, newState.agentData[agentUID]?.[section.toLowerCase()]);
+      return newState;
 
     case 'UPDATE_AGENT_STATUS':
+      console.log('🔄 UPDATE_AGENT_STATUS:', action.payload);
       return {
         ...state,
         agents: {
@@ -119,6 +128,7 @@ function agentDataReducer(state: AgentDataState, action: AgentDataAction): Agent
       };
     
     case 'SET_ERROR':
+      console.log('❌ SET_ERROR:', action.payload);
       return {
         ...state,
         errors: {
@@ -133,6 +143,7 @@ function agentDataReducer(state: AgentDataState, action: AgentDataAction): Agent
       return { ...state, errors: remainingErrors };
     
     case 'SET_CONNECTION_STATUS':
+      console.log('🔌 SET_CONNECTION_STATUS:', action.payload);
       return { ...state, connectionStatus: action.payload };
     
     default:
@@ -170,13 +181,13 @@ export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }
 
     const connectWebSocket = () => {
       dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'connecting' });
-      console.log('Connecting to PENA backend on ws://localhost:5000/pena');
+      console.log('🔌 Connecting to PENA backend on ws://localhost:5000/pena');
 
       try {
         ws = new WebSocket('ws://localhost:5000/pena');
 
         ws.onopen = () => {
-          console.log('Connected to PENA backend');
+          console.log('✅ Connected to PENA backend');
           dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'connected' });
           
           if (reconnectTimeout) {
@@ -188,13 +199,12 @@ export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }
         ws.onmessage = (event) => {
           try {
             const message = JSON.parse(event.data);
-            console.log('WS received:', message);
+            console.log('📨 WS received:', message);
 
             switch (message.type) {
               case 'agent_connect':
-                // Новый агент подключился
+                console.log('🤖 Processing agent_connect');
                 if (message.data) {
-                  // Исправляем странный host на нормальное значение
                   const normalizedHost = message.data.host === 'nmljdfeghinhklopekfaboobphinhhhc' 
                     ? 'chrome-extension://installed' 
                     : message.data.host;
@@ -209,13 +219,12 @@ export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }
                   
                   dispatch({ type: 'ADD_AGENT', payload: agentInfo });
                   
-                  // Создаем overview данные из systemInfo
                   if (message.data.systemInfo) {
                     const overviewData = {
                       status: message.data.status.toUpperCase(),
                       lastPing: message.data.lastSeen,
-                      cpuLoad: '23.4%', // Заглушка, можно получать реальные данные позже
-                      ramUsage: '1.2GB / 8.0GB', // Заглушка
+                      cpuLoad: '23.4%',
+                      ramUsage: '1.2GB / 8.0GB',
                       hostname: message.data.systemInfo.hostname || 'Unknown',
                       os: message.data.systemInfo.os || 'Unknown OS',
                       browser: message.data.systemInfo.browser || 'Chrome',
@@ -238,8 +247,11 @@ export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }
                 break;
 
               case 'update_data':
-                // Обновление данных от агента
+                console.log('📊 Processing update_data');
                 if (message.agentUID && message.section && message.data) {
+                  console.log(`📊 Updating ${message.section} for agent ${message.agentUID}`);
+                  console.log('📊 Raw data received:', message.data);
+                  
                   dispatch({
                     type: 'UPDATE_AGENT_DATA',
                     payload: {
@@ -249,7 +261,6 @@ export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }
                     }
                   });
 
-                  // Обновляем статус агента
                   dispatch({
                     type: 'UPDATE_AGENT_STATUS',
                     payload: {
@@ -258,47 +269,45 @@ export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }
                       lastSeen: new Date().toLocaleString()
                     }
                   });
+                } else {
+                  console.log('❌ Invalid update_data message:', message);
                 }
                 break;
 
               default:
-                console.log('Unknown message type:', message.type);
+                console.log('❓ Unknown message type:', message.type);
             }
           } catch (error) {
-            console.error('Error parsing WebSocket message:', error);
+            console.error('❌ Error parsing WebSocket message:', error);
           }
         };
 
         ws.onclose = () => {
-          console.log('WebSocket connection closed. Attempting to reconnect...');
+          console.log('🔌 WebSocket connection closed. Attempting to reconnect...');
           dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'disconnected' });
           
-          // Переподключение через 5 секунд
           reconnectTimeout = setTimeout(() => {
             connectWebSocket();
           }, 5000);
         };
 
         ws.onerror = (error) => {
-          console.error('WebSocket error:', error);
+          console.error('❌ WebSocket error:', error);
           dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'disconnected' });
         };
 
       } catch (error) {
-        console.error('Failed to create WebSocket connection:', error);
+        console.error('❌ Failed to create WebSocket connection:', error);
         dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'disconnected' });
         
-        // Повторная попытка через 5 секунд
         reconnectTimeout = setTimeout(() => {
           connectWebSocket();
         }, 5000);
       }
     };
 
-    // Начинаем подключение
     connectWebSocket();
 
-    // Cleanup при размонтировании
     return () => {
       if (reconnectTimeout) {
         clearTimeout(reconnectTimeout);
@@ -310,11 +319,14 @@ export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }
   }, []);
 
   const selectAgent = (agentUID: string) => {
+    console.log('🎯 selectAgent called with:', agentUID);
     dispatch({ type: 'SELECT_AGENT', payload: agentUID });
   };
 
   const getAgentData = (agentUID: string, section: string) => {
-    return state.agentData[agentUID]?.[section.toLowerCase()] || null;
+    const data = state.agentData[agentUID]?.[section.toLowerCase()] || null;
+    console.log(`📊 getAgentData(${agentUID}, ${section}):`, data);
+    return data;
   };
 
   const hasError = (agentUID: string, section: string) => {

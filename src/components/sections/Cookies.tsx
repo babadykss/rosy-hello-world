@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useAgentData } from '../../contexts/AgentDataContext';
 import LoadingSpinner from '../LoadingSpinner';
@@ -36,19 +35,39 @@ const Cookies: React.FC<CookiesProps> = ({ agentId }) => {
   const cookiesData = agentId ? getAgentData(agentId, 'cookies') : null;
   const error = agentId ? hasError(agentId, 'cookies') : null;
 
+  console.log('🍪 Cookies component render:', {
+    agentId,
+    cookiesData,
+    cookiesDataType: typeof cookiesData,
+    cookiesDataLength: Array.isArray(cookiesData) ? cookiesData.length : 'not array',
+    error,
+    loading
+  });
+
   useEffect(() => {
+    console.log('🍪 Cookies useEffect triggered, agentId:', agentId);
     if (agentId) {
       setLoading(true);
-      const timer = setTimeout(() => setLoading(false), 1000);
+      const timer = setTimeout(() => {
+        console.log('🍪 Loading timeout finished');
+        setLoading(false);
+      }, 1000);
       return () => clearTimeout(timer);
     }
   }, [agentId]);
 
+  // Дополнительное логирование при изменении данных
+  useEffect(() => {
+    console.log('🍪 cookiesData changed:', cookiesData);
+  }, [cookiesData]);
+
   if (loading) {
+    console.log('🍪 Showing loading spinner');
     return <LoadingSpinner />;
   }
 
   if (error) {
+    console.log('🍪 Showing error:', error);
     return (
       <div className="p-8">
         <div className="border border-red-400 p-4 bg-red-400/10 mb-6">
@@ -59,6 +78,7 @@ const Cookies: React.FC<CookiesProps> = ({ agentId }) => {
   }
 
   if (!cookiesData || !Array.isArray(cookiesData) || cookiesData.length === 0) {
+    console.log('🍪 Showing no data message');
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center">
@@ -78,6 +98,8 @@ const Cookies: React.FC<CookiesProps> = ({ agentId }) => {
     );
   }
 
+  console.log('🍪 Showing cookies table with', cookiesData.length, 'cookies');
+
   const filteredCookies = cookiesData.filter((cookie: Cookie) => 
     cookie.domain.toLowerCase().includes(domainFilter.toLowerCase())
   );
@@ -88,13 +110,11 @@ const Cookies: React.FC<CookiesProps> = ({ agentId }) => {
     currentPage * itemsPerPage
   );
 
-  // Логика для отображения пагинации с троеточием
   const renderPaginationItems = () => {
     const items = [];
     const maxVisiblePages = 5;
     
     if (totalPages <= maxVisiblePages) {
-      // Показываем все страницы если их мало
       for (let i = 1; i <= totalPages; i++) {
         items.push(
           <PaginationItem key={i}>
@@ -113,7 +133,6 @@ const Cookies: React.FC<CookiesProps> = ({ agentId }) => {
         );
       }
     } else {
-      // Показываем первую страницу
       items.push(
         <PaginationItem key={1}>
           <PaginationLink
@@ -130,7 +149,6 @@ const Cookies: React.FC<CookiesProps> = ({ agentId }) => {
         </PaginationItem>
       );
 
-      // Показываем троеточие если нужно
       if (currentPage > 3) {
         items.push(
           <PaginationItem key="ellipsis-start">
@@ -139,7 +157,6 @@ const Cookies: React.FC<CookiesProps> = ({ agentId }) => {
         );
       }
 
-      // Показываем страницы вокруг текущей
       const start = Math.max(2, currentPage - 1);
       const end = Math.min(totalPages - 1, currentPage + 1);
       
@@ -161,7 +178,6 @@ const Cookies: React.FC<CookiesProps> = ({ agentId }) => {
         );
       }
 
-      // Показываем троеточие если нужно
       if (currentPage < totalPages - 2) {
         items.push(
           <PaginationItem key="ellipsis-end">
@@ -170,7 +186,6 @@ const Cookies: React.FC<CookiesProps> = ({ agentId }) => {
         );
       }
 
-      // Показываем последнюю страницу
       if (totalPages > 1) {
         items.push(
           <PaginationItem key={totalPages}>
