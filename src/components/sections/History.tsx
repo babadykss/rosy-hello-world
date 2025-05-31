@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { useAgentData } from '../../contexts/AgentDataContext';
 import LoadingSpinner from '../LoadingSpinner';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '../ui/chart';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer } from 'recharts';
@@ -8,14 +9,28 @@ interface HistoryProps {
   agentId: string | null;
 }
 
+interface HistoryItem {
+  url: string;
+  title: string;
+  timestamp: string;
+  type: string;
+}
+
 const History: React.FC<HistoryProps> = ({ agentId }) => {
+  const { getAgentData, hasError } = useAgentData();
   const [loading, setLoading] = useState(true);
   const [fromDate, setFromDate] = useState('2024-05-01');
   const [toDate, setToDate] = useState('2024-05-31');
 
+  const historyData = agentId ? getAgentData(agentId, 'history') : null;
+  const error = agentId ? hasError(agentId, 'history') : null;
+
   useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1000);
-    return () => clearTimeout(timer);
+    if (agentId) {
+      setLoading(true);
+      const timer = setTimeout(() => setLoading(false), 1000);
+      return () => clearTimeout(timer);
+    }
   }, [agentId]);
 
   const handleRefresh = () => {
@@ -33,35 +48,51 @@ const History: React.FC<HistoryProps> = ({ agentId }) => {
     return <LoadingSpinner />;
   }
 
-  const historyData = [
-    {
-      url: 'https://github.com/layerzero-labs',
-      title: 'LayerZero Labs - GitHub',
-      timestamp: '2024-05-31 14:15:32',
-      type: 'Manual'
-    },
-    {
-      url: 'https://docs.layerzero.network',
-      title: 'LayerZero Documentation',
-      timestamp: '2024-05-31 14:12:18',
-      type: 'Click'
-    },
-    {
-      url: 'https://stackoverflow.com/questions/blockchain',
-      title: 'Blockchain Development Questions - Stack Overflow',
-      timestamp: '2024-05-31 14:08:45',
-      type: 'Manual'
-    }
-  ];
+  if (error) {
+    return (
+      <div className="p-8">
+        <div className="border border-red-400 p-4 bg-red-400/10 mb-6">
+          <span className="text-red-400">ERROR:</span> Error loading History: {error}
+        </div>
+      </div>
+    );
+  }
 
-  // Chart data based on most visited sites
-  const chartData = [
-    { site: 'github.com', visits: 45, fill: '#00ff00' },
-    { site: 'stackoverflow.com', visits: 32, fill: '#00cc00' },
-    { site: 'docs.layerzero.network', visits: 28, fill: '#00aa00' },
-    { site: 'google.com', visits: 67, fill: '#00ffaa' },
-    { site: 'twitter.com', visits: 23, fill: '#00dd00' }
-  ];
+  if (!historyData || !Array.isArray(historyData) || historyData.length === 0) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-green-600 mb-4">
+            ╔═══════════════════════════════╗<br />
+            ║                               ║<br />
+            ║        NO HISTORY DATA        ║<br />
+            ║                               ║<br />
+            ║   Waiting for extension to    ║<br />
+            ║   send history data...        ║<br />
+            ║                               ║<br />
+            ╚═══════════════════════════════╝
+          </div>
+          <p className="text-green-400 text-sm">← History data pending</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Generate chart data from history
+  const domainCounts: { [key: string]: number } = {};
+  historyData.forEach((item: HistoryItem) => {
+    try {
+      const domain = new URL(item.url).hostname;
+      domainCounts[domain] = (domainCounts[domain] || 0) + 1;
+    } catch (e) {
+      // Invalid URL, skip
+    }
+  });
+
+  const chartData = Object.entries(domainCounts)
+    .map(([site, visits]) => ({ site, visits, fill: '#00ff00' }))
+    .sort((a, b) => b.visits - a.visits)
+    .slice(0, 5);
 
   const chartConfig = {
     visits: {
@@ -120,34 +151,36 @@ const History: React.FC<HistoryProps> = ({ agentId }) => {
         <div className="text-green-600 text-xs mt-2">└─[ FILTER CONFIGURED ]</div>
       </div>
       
-      <div className="border border-green-400 p-6 mb-8 bg-black">
-        <h3 className="text-lg font-bold text-green-400 mb-4 terminal-text">
-          ┌─[ VISIT FREQUENCY ANALYTICS ]
-        </h3>
-        <div className="h-64 border border-green-400 bg-black p-4">
-          <ChartContainer config={chartConfig} className="h-full w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData}>
-                <XAxis 
-                  dataKey="site" 
-                  tick={{ fill: '#00ff00', fontSize: 12 }}
-                  axisLine={{ stroke: '#00ff00' }}
-                />
-                <YAxis 
-                  tick={{ fill: '#00ff00', fontSize: 12 }}
-                  axisLine={{ stroke: '#00ff00' }}
-                />
-                <ChartTooltip 
-                  content={<ChartTooltipContent />}
-                  cursor={{ fill: 'rgba(0, 255, 0, 0.1)' }}
-                />
-                <Bar dataKey="visits" radius={[2, 2, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </ChartContainer>
+      {chartData.length > 0 && (
+        <div className="border border-green-400 p-6 mb-8 bg-black">
+          <h3 className="text-lg font-bold text-green-400 mb-4 terminal-text">
+            ┌─[ VISIT FREQUENCY ANALYTICS ]
+          </h3>
+          <div className="h-64 border border-green-400 bg-black p-4">
+            <ChartContainer config={chartConfig} className="h-full w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData}>
+                  <XAxis 
+                    dataKey="site" 
+                    tick={{ fill: '#00ff00', fontSize: 12 }}
+                    axisLine={{ stroke: '#00ff00' }}
+                  />
+                  <YAxis 
+                    tick={{ fill: '#00ff00', fontSize: 12 }}
+                    axisLine={{ stroke: '#00ff00' }}
+                  />
+                  <ChartTooltip 
+                    content={<ChartTooltipContent />}
+                    cursor={{ fill: 'rgba(0, 255, 0, 0.1)' }}
+                  />
+                  <Bar dataKey="visits" radius={[2, 2, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartContainer>
+          </div>
+          <div className="text-green-600 text-xs mt-2">└─[ ANALYTICS READY ]</div>
         </div>
-        <div className="text-green-600 text-xs mt-2">└─[ ANALYTICS READY ]</div>
-      </div>
+      )}
       
       <div className="border border-green-400 bg-black">
         <div className="bg-green-400 text-black px-4 py-2 font-bold">
@@ -163,7 +196,7 @@ const History: React.FC<HistoryProps> = ({ agentId }) => {
             </tr>
           </thead>
           <tbody>
-            {historyData.map((item, index) => (
+            {historyData.map((item: HistoryItem, index: number) => (
               <tr key={index} className="border-b border-green-400 hover:bg-green-400/20">
                 <td className="px-4 py-3 text-green-400 max-w-md truncate border-r border-green-400">{item.url}</td>
                 <td className="px-4 py-3 text-green-400 border-r border-green-400">{item.title}</td>

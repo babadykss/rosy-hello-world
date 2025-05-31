@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { useAgentData } from '../../contexts/AgentDataContext';
 import LoadingSpinner from '../LoadingSpinner';
 
 interface CookiesProps {
@@ -16,70 +17,59 @@ interface Cookie {
   expires: string;
 }
 
-const mockCookies: Cookie[] = [
-  {
-    domain: 'google.com',
-    name: '_ga',
-    value: 'GA1.2.123456789.1234567890',
-    path: '/',
-    secure: true,
-    httpOnly: false,
-    expires: '2025-05-31'
-  },
-  {
-    domain: 'github.com',
-    name: 'session_id',
-    value: 'abc123def456',
-    path: '/',
-    secure: true,
-    httpOnly: true,
-    expires: '2024-06-01'
-  },
-  {
-    domain: 'stackoverflow.com',
-    name: 'preferences',
-    value: 'theme=dark',
-    path: '/',
-    secure: false,
-    httpOnly: false,
-    expires: 'Session'
-  },
-  {
-    domain: 'facebook.com',
-    name: 'datr',
-    value: 'xyz789abc123',
-    path: '/',
-    secure: true,
-    httpOnly: true,
-    expires: '2025-12-31'
-  },
-  {
-    domain: 'twitter.com',
-    name: 'auth_token',
-    value: 'token_xyz123',
-    path: '/',
-    secure: true,
-    httpOnly: false,
-    expires: '2024-08-15'
-  }
-];
-
 const Cookies: React.FC<CookiesProps> = ({ agentId }) => {
+  const { getAgentData, hasError } = useAgentData();
   const [loading, setLoading] = useState(true);
   const [domainFilter, setDomainFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
+  const cookiesData = agentId ? getAgentData(agentId, 'cookies') : null;
+  const error = agentId ? hasError(agentId, 'cookies') : null;
+
   useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1000);
-    return () => clearTimeout(timer);
+    if (agentId) {
+      setLoading(true);
+      const timer = setTimeout(() => setLoading(false), 1000);
+      return () => clearTimeout(timer);
+    }
   }, [agentId]);
 
   if (loading) {
     return <LoadingSpinner />;
   }
 
-  const filteredCookies = mockCookies.filter(cookie => 
+  if (error) {
+    return (
+      <div className="p-8">
+        <div className="border border-red-400 p-4 bg-red-400/10 mb-6">
+          <span className="text-red-400">ERROR:</span> Error loading Cookies: {error}
+        </div>
+      </div>
+    );
+  }
+
+  if (!cookiesData || !Array.isArray(cookiesData) || cookiesData.length === 0) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-green-600 mb-4">
+            ╔═══════════════════════════════╗<br />
+            ║                               ║<br />
+            ║        NO COOKIES DATA        ║<br />
+            ║                               ║<br />
+            ║   Waiting for extension to    ║<br />
+            ║   send cookies data...        ║<br />
+            ║                               ║<br />
+            ╚═══════════════════════════════╝
+          </div>
+          <p className="text-green-400 text-sm">← Cookies data pending</p>
+        </div>
+      </div>
+    );
+  }
+
+  const filteredCookies = cookiesData.filter((cookie: Cookie) => 
     cookie.domain.toLowerCase().includes(domainFilter.toLowerCase())
   );
 
@@ -139,7 +129,7 @@ const Cookies: React.FC<CookiesProps> = ({ agentId }) => {
             </tr>
           </thead>
           <tbody>
-            {paginatedCookies.map((cookie, index) => (
+            {paginatedCookies.map((cookie: Cookie, index: number) => (
               <tr key={index} className="border-b border-green-400 hover:bg-green-400/20">
                 <td className="px-4 py-3 text-green-400 border-r border-green-400">{cookie.domain}</td>
                 <td className="px-4 py-3 text-green-400 border-r border-green-400">{cookie.name}</td>
@@ -155,7 +145,7 @@ const Cookies: React.FC<CookiesProps> = ({ agentId }) => {
                     {cookie.httpOnly ? 'YES' : 'NO'}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-green-400">{cookie.expires}</td>
+                <td className="px-4 py-3 text-green-400">{cookie.expires || 'Session'}</td>
               </tr>
             ))}
           </tbody>
