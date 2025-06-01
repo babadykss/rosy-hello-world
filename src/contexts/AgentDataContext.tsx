@@ -54,18 +54,54 @@ type AgentDataAction =
   | { type: 'CLEAR_ERROR'; payload: { agentUID: string; section: string } }
   | { type: 'UPDATE_AGENT_STATUS'; payload: { uid: string; status: 'online' | 'offline'; lastSeen: string } };
 
+const STORAGE_KEY = 'pena_agent_data';
+
+// Функция для сохранения в localStorage
+const saveToStorage = (state: AgentDataState) => {
+  try {
+    const dataToSave = {
+      agents: state.agents,
+      agentData: state.agentData,
+      selectedAgent: state.selectedAgent
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+    console.log('💾 Saved to localStorage:', dataToSave);
+  } catch (error) {
+    console.error('❌ Failed to save to localStorage:', error);
+  }
+};
+
+// Функция для загрузки из localStorage
+const loadFromStorage = (): Partial<AgentDataState> => {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      console.log('📂 Loaded from localStorage:', parsed);
+      return parsed;
+    }
+  } catch (error) {
+    console.error('❌ Failed to load from localStorage:', error);
+  }
+  return {};
+};
+
 const initialState: AgentDataState = {
   agents: {},
   agentData: {},
   selectedAgent: null,
   connectionStatus: 'disconnected',
-  errors: {}
+  errors: {},
+  ...loadFromStorage() // Восстанавливаем данные при инициализации
 };
 
 function agentDataReducer(state: AgentDataState, action: AgentDataAction): AgentDataState {
+  let newState: AgentDataState;
+  
   switch (action.type) {
     case 'SET_AGENTS':
-      return { ...state, agents: action.payload };
+      newState = { ...state, agents: action.payload };
+      break;
     
     case 'ADD_AGENT':
       console.log('🔥 ADD_AGENT:', action.payload);
@@ -73,7 +109,7 @@ function agentDataReducer(state: AgentDataState, action: AgentDataAction): Agent
       // Проверяем, существует ли агент уже
       const existingAgentData = state.agentData[action.payload.uid];
       
-      return {
+      newState = {
         ...state,
         agents: { ...state.agents, [action.payload.uid]: action.payload },
         agentData: {
@@ -93,10 +129,12 @@ function agentDataReducer(state: AgentDataState, action: AgentDataAction): Agent
           }
         }
       };
+      break;
     
     case 'SELECT_AGENT':
       console.log('🎯 SELECT_AGENT:', action.payload);
-      return { ...state, selectedAgent: action.payload };
+      newState = { ...state, selectedAgent: action.payload };
+      break;
     
     case 'UPDATE_AGENT_DATA':
       const { agentUID, section, data } = action.payload;
@@ -163,7 +201,7 @@ function agentDataReducer(state: AgentDataState, action: AgentDataAction): Agent
         console.log(`📊 Replaced ${sectionKey} with new data`);
       }
       
-      const newState = {
+      newState = {
         ...state,
         agentData: {
           ...state.agentData,
@@ -175,11 +213,11 @@ function agentDataReducer(state: AgentDataState, action: AgentDataAction): Agent
       };
       
       console.log(`📊 After update - Agent ${agentUID} ${section}:`, newState.agentData[agentUID]?.[sectionKey]);
-      return newState;
+      break;
 
     case 'UPDATE_AGENT_STATUS':
       console.log('🔄 UPDATE_AGENT_STATUS:', action.payload);
-      return {
+      newState = {
         ...state,
         agents: {
           ...state.agents,
@@ -190,29 +228,40 @@ function agentDataReducer(state: AgentDataState, action: AgentDataAction): Agent
           }
         }
       };
+      break;
     
     case 'SET_ERROR':
       console.log('❌ SET_ERROR:', action.payload);
-      return {
+      newState = {
         ...state,
         errors: {
           ...state.errors,
           [`${action.payload.agentUID}_${action.payload.section}`]: action.payload.error
         }
       };
+      break;
     
     case 'CLEAR_ERROR':
       const errorKey = `${action.payload.agentUID}_${action.payload.section}`;
       const { [errorKey]: removed, ...remainingErrors } = state.errors;
-      return { ...state, errors: remainingErrors };
+      newState = { ...state, errors: remainingErrors };
+      break;
     
     case 'SET_CONNECTION_STATUS':
       console.log('🔌 SET_CONNECTION_STATUS:', action.payload);
-      return { ...state, connectionStatus: action.payload };
+      newState = { ...state, connectionStatus: action.payload };
+      break;
     
     default:
-      return state;
+      newState = state;
   }
+
+  // Сохраняем в localStorage после каждого изменения (кроме ошибок и статуса соединения)
+  if (action.type !== 'SET_ERROR' && action.type !== 'CLEAR_ERROR' && action.type !== 'SET_CONNECTION_STATUS') {
+    saveToStorage(newState);
+  }
+
+  return newState;
 }
 
 interface AgentDataContextType {
