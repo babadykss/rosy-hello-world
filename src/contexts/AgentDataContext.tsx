@@ -52,7 +52,9 @@ type AgentDataAction =
   | { type: 'SET_ERROR'; payload: { agentUID: string; section: string; error: string } }
   | { type: 'SET_CONNECTION_STATUS'; payload: 'connected' | 'connecting' | 'disconnected' }
   | { type: 'CLEAR_ERROR'; payload: { agentUID: string; section: string } }
-  | { type: 'UPDATE_AGENT_STATUS'; payload: { uid: string; status: 'online' | 'offline'; lastSeen: string } };
+  | { type: 'UPDATE_AGENT_STATUS'; payload: { uid: string; status: 'online' | 'offline'; lastSeen: string } }
+  | { type: 'RENAME_AGENT'; payload: { oldUID: string; newUID: string } }
+  | { type: 'DELETE_AGENT'; payload: string };
 
 const STORAGE_KEY = 'pena_agent_data';
 
@@ -252,6 +254,49 @@ function agentDataReducer(state: AgentDataState, action: AgentDataAction): Agent
       newState = { ...state, connectionStatus: action.payload };
       break;
     
+    case 'RENAME_AGENT':
+      console.log('✏️ RENAME_AGENT:', action.payload);
+      const { oldUID, newUID } = action.payload;
+      
+      // Создаем новые объекты без старого UID
+      const { [oldUID]: removedAgent, ...restAgents } = state.agents;
+      const { [oldUID]: removedData, ...restData } = state.agentData;
+      
+      // Добавляем с новым UID
+      const updatedAgent = { ...removedAgent, uid: newUID };
+      
+      newState = {
+        ...state,
+        agents: { ...restAgents, [newUID]: updatedAgent },
+        agentData: { ...restData, [newUID]: removedData },
+        selectedAgent: state.selectedAgent === oldUID ? newUID : state.selectedAgent
+      };
+      break;
+
+    case 'DELETE_AGENT':
+      console.log('🗑️ DELETE_AGENT:', action.payload);
+      const uidToDelete = action.payload;
+      
+      const { [uidToDelete]: deletedAgent, ...remainingAgents } = state.agents;
+      const { [uidToDelete]: deletedData, ...remainingData } = state.agentData;
+      
+      // Очищаем связанные ошибки
+      const clearedErrors = Object.keys(state.errors).reduce((acc, key) => {
+        if (!key.startsWith(`${uidToDelete}_`)) {
+          acc[key] = state.errors[key];
+        }
+        return acc;
+      }, {} as Record<string, string>);
+      
+      newState = {
+        ...state,
+        agents: remainingAgents,
+        agentData: remainingData,
+        errors: clearedErrors,
+        selectedAgent: state.selectedAgent === uidToDelete ? null : state.selectedAgent
+      };
+      break;
+    
     default:
       newState = state;
   }
@@ -269,6 +314,8 @@ interface AgentDataContextType {
   selectAgent: (agentUID: string) => void;
   getAgentData: (agentUID: string, section: string) => any;
   hasError: (agentUID: string, section: string) => string | null;
+  renameAgent: (oldUID: string, newUID: string) => void;
+  deleteAgent: (uid: string) => void;
 }
 
 const AgentDataContext = createContext<AgentDataContextType | undefined>(undefined);
@@ -318,13 +365,16 @@ export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }
               case 'agent_connect':
                 console.log('🤖 Processing agent_connect');
                 if (message.data) {
-                  const normalizedHost = message.data.host === 'nmljdfeghinhklopekfaboobphinhhhc' 
-                    ? 'chrome-extension://installed' 
-                    : message.data.host;
+                  // Используем реальный IP и информацию о стране
+                  const realIP = message.data.systemInfo?.ipAddress || '127.0.0.1';
+                  const country = message.data.systemInfo?.country || 'Unknown';
+                  const countryFlag = message.data.systemInfo?.countryFlag || '🌍';
+                  
+                  const hostDisplay = `${realIP} ${countryFlag} ${country}`;
 
                   const agentInfo: AgentInfo = {
                     uid: message.data.uid,
-                    host: normalizedHost,
+                    host: hostDisplay,
                     lastSeen: message.data.lastSeen,
                     status: message.data.status,
                     systemInfo: message.data.systemInfo
@@ -341,7 +391,7 @@ export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }
                       hostname: message.data.systemInfo.hostname || 'Unknown',
                       os: message.data.systemInfo.os || 'Unknown OS',
                       browser: message.data.systemInfo.browser || 'Chrome',
-                      ipAddress: message.data.systemInfo.ipAddress || '127.0.0.1',
+                      ipAddress: realIP,
                       commands: [
                         { time: new Date().toLocaleTimeString(), command: `agent_connect(uid="${message.data.uid}")` }
                       ]
@@ -436,6 +486,16 @@ export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }
     dispatch({ type: 'SELECT_AGENT', payload: agentUID });
   };
 
+  const renameAgent = (oldUID: string, newUID: string) => {
+    console.log('✏️ renameAgent called:', { oldUID, newUID });
+    dispatch({ type: 'RENAME_AGENT', payload: { oldUID, newUID } });
+  };
+
+  const deleteAgent = (uid: string) => {
+    console.log('🗑️ deleteAgent called:', uid);
+    dispatch({ type: 'DELETE_AGENT', payload: uid });
+  };
+
   const getAgentData = (agentUID: string, section: string) => {
     const data = state.agentData[agentUID]?.[section.toLowerCase()] || null;
     console.log(`📊 getAgentData(${agentUID}, ${section}):`, data);
@@ -447,7 +507,14 @@ export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }
   };
 
   return (
-    <AgentDataContext.Provider value={{ state, selectAgent, getAgentData, hasError }}>
+    <AgentDataContext.Provider value={{ 
+      state, 
+      selectAgent, 
+      getAgentData, 
+      hasError, 
+      renameAgent, 
+      deleteAgent 
+    }}>
       {children}
     </AgentDataContext.Provider>
   );
