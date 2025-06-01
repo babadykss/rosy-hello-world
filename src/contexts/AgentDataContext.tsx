@@ -57,6 +57,7 @@ type AgentDataAction =
   | { type: 'DELETE_AGENT'; payload: string };
 
 const STORAGE_KEY = 'pena_agent_data';
+const AGENT_TIMEOUT_MS = 30000; // 30 секунд без активности = offline
 
 // Функция для сохранения в localStorage
 const saveToStorage = (state: AgentDataState) => {
@@ -335,6 +336,36 @@ interface AgentDataProviderProps {
 export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }) => {
   const [state, dispatch] = useReducer(agentDataReducer, initialState);
 
+  // Функция для проверки и обновления статусов агентов
+  const checkAgentStatuses = () => {
+    const now = Date.now();
+    Object.values(state.agents).forEach(agent => {
+      if (agent.status === 'online') {
+        const lastSeenTime = new Date(agent.lastSeen).getTime();
+        if (now - lastSeenTime > AGENT_TIMEOUT_MS) {
+          console.log(`⏰ Agent ${agent.uid} timeout, setting to offline`);
+          dispatch({
+            type: 'UPDATE_AGENT_STATUS',
+            payload: {
+              uid: agent.uid,
+              status: 'offline',
+              lastSeen: agent.lastSeen
+            }
+          });
+        }
+      }
+    });
+  };
+
+  useEffect(() => {
+    // Проверяем статусы агентов каждые 10 секунд
+    const statusInterval = setInterval(checkAgentStatuses, 10000);
+    
+    return () => {
+      clearInterval(statusInterval);
+    };
+  }, [state.agents]);
+
   useEffect(() => {
     let ws: WebSocket | null = null;
     let reconnectTimeout: NodeJS.Timeout | null = null;
@@ -365,18 +396,49 @@ export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }
               case 'agent_connect':
                 console.log('🤖 Processing agent_connect');
                 if (message.data) {
-                  // Используем реальный IP и информацию о стране
-                  const realIP = message.data.systemInfo?.ipAddress || '127.0.0.1';
-                  const country = message.data.systemInfo?.country || 'Unknown';
-                  const countryFlag = message.data.systemInfo?.countryFlag || '🌍';
+                  // Получаем реальный IP и информацию о стране
+                  const realIP = message.data.systemInfo?.ipAddress || message.data.systemInfo?.ip || '127.0.0.1';
+                  const country = message.data.systemInfo?.country || message.data.systemInfo?.countryName || 'Unknown';
+                  const countryCode = message.data.systemInfo?.countryCode || message.data.systemInfo?.country_code || '';
+                  
+                  // Получаем флаг по коду страны
+                  let countryFlag = '🌍';
+                  if (countryCode && countryCode.length === 2) {
+                    // Конвертируем код страны в emoji флага
+                    const codePoints = countryCode
+                      .toUpperCase()
+                      .split('')
+                      .map(char => 127397 + char.charCodeAt(0));
+                    countryFlag = String.fromCodePoint(...codePoints);
+                  } else if (country && country !== 'Unknown') {
+                    // Карта популярных стран для флагов
+                    const countryFlags = {
+                      'Russia': '🇷🇺',
+                      'Russian Federation': '🇷🇺',
+                      'United States': '🇺🇸',
+                      'USA': '🇺🇸',
+                      'Ukraine': '🇺🇦',
+                      'Germany': '🇩🇪',
+                      'France': '🇫🇷',
+                      'United Kingdom': '🇬🇧',
+                      'UK': '🇬🇧',
+                      'China': '🇨🇳',
+                      'Japan': '🇯🇵',
+                      'Canada': '🇨🇦',
+                      'Australia': '🇦🇺',
+                      'Brazil': '🇧🇷',
+                      'India': '🇮🇳'
+                    };
+                    countryFlag = countryFlags[country] || '🌍';
+                  }
                   
                   const hostDisplay = `${realIP} ${countryFlag} ${country}`;
 
                   const agentInfo: AgentInfo = {
                     uid: message.data.uid,
                     host: hostDisplay,
-                    lastSeen: message.data.lastSeen,
-                    status: message.data.status,
+                    lastSeen: message.data.lastSeen || new Date().toLocaleString(),
+                    status: 'online',
                     systemInfo: message.data.systemInfo
                   };
                   
@@ -384,8 +446,8 @@ export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }
                   
                   if (message.data.systemInfo) {
                     const overviewData = {
-                      status: message.data.status.toUpperCase(),
-                      lastPing: message.data.lastSeen,
+                      status: 'ONLINE',
+                      lastPing: agentInfo.lastSeen,
                       cpuLoad: '23.4%',
                       ramUsage: '1.2GB / 8.0GB',
                       hostname: message.data.systemInfo.hostname || 'Unknown',
@@ -424,6 +486,7 @@ export const AgentDataProvider: React.FC<AgentDataProviderProps> = ({ children }
                     }
                   });
 
+                  // Обновляем время последней активности агента
                   dispatch({
                     type: 'UPDATE_AGENT_STATUS',
                     payload: {
